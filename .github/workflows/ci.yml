@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-function:
+    name: Validate process_batch function
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for forbidden large-batch guard patterns
+        # Prevents re-introduction of the pattern that caused the v1.0.1 incident:
+        # a RuntimeError raised when rows exceed a threshold
+        run: |
+          if grep -En "RuntimeError|rows\s*[>]=?\s*[0-9]+" \
+               src/function_http/process_batch/__init__.py; then
+            echo "::error file=src/function_http/process_batch/__init__.py::Forbidden guard pattern detected (see v1.0.1 incident). Remove any RuntimeError raise or row-count threshold check."
+            exit 1
+          fi
+          echo "No forbidden patterns found in process_batch/__init__.py."
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r src/function_http/requirements.txt
+
+      - name: Smoke-test function logic
+        # Exercises the handler with both a small and large payload to confirm
+        # no guard raises an error for large row counts (regression for v1.0.1).
+        run: |
+          python - <<'EOF'
+          import sys, json, types, unittest.mock as mock
+
+          # Minimal azure.functions stub so __init__.py can be imported stand-alone
+          af = types.ModuleType("azure.functions")
+          af.HttpRequest = None
+          af.HttpResponse = lambda body, status_code, mimetype: types.SimpleNamespace(
+              body=body, status_code=status_code
+          )
+          sys.modules["azure"] = types.ModuleType("azure")
+          sys.modules["azure.functions"] = af
+
+          sys.path.insert(0, "src/function_http")
+          import process_batch
+
+          def make_req(payload):
+              req = mock.MagicMock()
+              req.get_json.return_value = payload
+              return req
+
+          for label, rows in [("small", 1000), ("large", 200000)]:
+              resp = process_batch.main(make_req({"batch_id": "ci", "rows": rows, "source": "test"}))
+              assert resp.status_code == 200, f"{label} batch returned {resp.status_code}"
+              body = json.loads(resp.body)
+              assert body["status"] == "ok", f"{label} batch body.status != ok"
+              assert body["processed_rows"] == rows, f"{label} processed_rows mismatch"
+              print(f"  {label} batch (rows={rows}): OK")
+
+          print("All smoke tests passed.")
+          EOF

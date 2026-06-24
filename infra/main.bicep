@@ -10,6 +10,9 @@ param appInsightsName string
 @description('Log Analytics workspace name')
 param logAnalyticsName string
 
+@description('GitHub Releases URL of the function package zip to run from. Update this to promote a new release to production.')
+param packageUrl string = 'https://github.com/lucmasssol/dataops-pipeline-demo/releases/download/v1.0.2/function-v1.0.2.zip'
+
 var storageName = take(toLower(replace('st${functionAppName}${uniqueString(resourceGroup().id)}', '-', '')), 24)
 var planName = '${functionAppName}-plan'
 
@@ -77,6 +80,7 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
         { name: 'AzureWebJobsStorage__credential', value: 'managedidentity' }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
         { name: 'APPINSIGHTS_INSTRUMENTATIONKEY', value: appInsights.properties.InstrumentationKey }
+        { name: 'WEBSITE_RUN_FROM_PACKAGE', value: packageUrl }
       ]
     }
   }
