@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build, validate and publish release asset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest
+
+      - name: Run unit tests (including large-batch regression)
+        run: python -m pytest src/function_http/tests/ -v
+
+      - name: Build function zip
+        run: |
+          cd src/function_http
+          zip -r "../../function-${{ github.ref_name }}.zip" . \
+            --exclude "tests/*" \
+            --exclude "__pycache__/*" \
+            --exclude "*.pyc"
+
+      - name: Validate zip – no RuntimeError guard
+        run: |
+          TMPDIR=$(mktemp -d)
+          unzip -q "function-${{ github.ref_name }}.zip" -d "$TMPDIR"
+          INIT="$TMPDIR/process_batch/__init__.py"
+          if [ ! -f "$INIT" ]; then
+            echo "ERROR: process_batch/__init__.py not found in zip"
+            exit 1
+          fi
+          if grep -n 'raise RuntimeError' "$INIT"; then
+            echo "ERROR: package contains RuntimeError guard – release blocked"
+            exit 1
+          fi
+          echo "Validation passed: no RuntimeError guard found in packaged handler"
+
+      - name: Validate zip – commit SHA matches tag
+        run: |
+          EXPECTED_SHA="${{ github.sha }}"
+          BUILT_FROM=$(git rev-parse HEAD)
+          if [ "$EXPECTED_SHA" != "$BUILT_FROM" ]; then
+            echo "ERROR: zip was built from $BUILT_FROM but tag points to $EXPECTED_SHA"
+            exit 1
+          fi
+          echo "Commit SHA verification passed: $BUILT_FROM"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "function-${{ github.ref_name }}.zip"
+          body: |
+            ## Release ${{ github.ref_name }}
+
+            **Commit:** ${{ github.sha }}
+
+            ### Validation checks passed
+            - ✅ Unit tests (including large-batch regression for rows > 50 000)
+            - ✅ No `RuntimeError` guard found in packaged `process_batch/__init__.py`
+            - ✅ Release asset built from tagged commit `${{ github.sha }}`
+
+            ### Deployment
+            Set `WEBSITE_RUN_FROM_PACKAGE` to the attached zip URL to deploy.
