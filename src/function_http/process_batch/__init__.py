@@ -16,6 +16,13 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         rows,
     )
 
+    if rows > 50000:
+
+
+        raise RuntimeError("memory pressure detected on large batch")
+
+
+
     processed_rows = rows
 
     result = {
