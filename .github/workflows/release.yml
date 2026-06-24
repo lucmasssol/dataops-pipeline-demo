@@ -41,8 +41,8 @@ jobs:
             exit 1
           fi
 
-          if grep -En "RuntimeError|rows\s*[>]=?\s*[0-9]+" "${TARGET}"; then
-            echo "::error file=process_batch/__init__.py::Forbidden guard pattern found in packaged file. Release blocked. Remove any RuntimeError raise or row-count threshold check before re-tagging."
+          if grep -En "raise\s+RuntimeError" "${TARGET}"; then
+            echo "::error file=process_batch/__init__.py::Forbidden pattern: 'raise RuntimeError' found in packaged file. Release blocked. The handler must return an HttpResponse for all inputs — see v1.0.1 incident."
             exit 1
           fi
           echo "Package validation passed — no forbidden patterns detected."

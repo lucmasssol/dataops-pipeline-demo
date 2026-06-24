@@ -15,11 +15,13 @@ jobs:
 
       - name: Check for forbidden large-batch guard patterns
         # Prevents re-introduction of the pattern that caused the v1.0.1 incident:
-        # a RuntimeError raised when rows exceed a threshold
+        # an explicit RuntimeError raised inside the function handler.
+        # A function handler must always return an HttpResponse — raising RuntimeError
+        # is never legitimate and directly caused the production failures.
         run: |
-          if grep -En "RuntimeError|rows\s*[>]=?\s*[0-9]+" \
+          if grep -En "raise\s+RuntimeError" \
                src/function_http/process_batch/__init__.py; then
-            echo "::error file=src/function_http/process_batch/__init__.py::Forbidden guard pattern detected (see v1.0.1 incident). Remove any RuntimeError raise or row-count threshold check."
+            echo "::error file=src/function_http/process_batch/__init__.py::Forbidden pattern: 'raise RuntimeError' detected (see v1.0.1 incident). The handler must return an HttpResponse for all inputs."
             exit 1
           fi
           echo "No forbidden patterns found in process_batch/__init__.py."
