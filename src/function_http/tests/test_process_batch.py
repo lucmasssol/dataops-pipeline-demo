@@ -59,7 +59,7 @@ class TestProcessBatch(unittest.TestCase):
         self.assertEqual(body["processed_rows"], 1000)
 
     def test_large_batch_returns_200(self):
-        """rows > 50 000 must NOT raise RuntimeError and must return HTTP 200."""
+        """rows > 50,000 must NOT raise RuntimeError and must return HTTP 200."""
         resp = main(_make_request(batch_id="big", rows=60000, source="scheduled"))
         self.assertEqual(resp.status_code, 200)
         body = json.loads(resp.get_body())
@@ -67,7 +67,7 @@ class TestProcessBatch(unittest.TestCase):
         self.assertEqual(body["processed_rows"], 60000)
 
     def test_very_large_batch_returns_200(self):
-        """rows = 200 000 (as in data/payload-large.json) must succeed."""
+        """rows = 200,000 (as in data/payload-large.json) must succeed."""
         resp = main(_make_request(batch_id="huge", rows=200000, source="scheduled"))
         self.assertEqual(resp.status_code, 200)
         body = json.loads(resp.get_body())

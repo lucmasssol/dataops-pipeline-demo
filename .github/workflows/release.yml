@@ -69,7 +69,7 @@ jobs:
             **Commit:** ${{ github.sha }}
 
             ### Validation checks passed
-            - ✅ Unit tests (including large-batch regression for rows > 50 000)
+            - ✅ Unit tests (including large-batch regression for rows > 50,000)
             - ✅ No `RuntimeError` guard found in packaged `process_batch/__init__.py`
             - ✅ Release asset built from tagged commit `${{ github.sha }}`
 
