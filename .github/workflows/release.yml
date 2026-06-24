@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write   # needed to create a GitHub Release and upload assets
+
+jobs:
+  build-validate-release:
+    name: Build, validate and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── 1. Build the deployment package ────────────────────────────────────
+      - name: Package function code
+        run: |
+          VERSION="${{ github.ref_name }}"
+          ARCHIVE="function-${VERSION}.zip"
+          cd src/function_http
+          zip -r "../../${ARCHIVE}" .
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      # ── 2. Validate package contents before publishing ───────────────────
+      # This step implements the release validation check requested in the
+      # v1.0.1 post-incident follow-up: inspect the packaged
+      # process_batch/__init__.py for the forbidden memory-pressure guard
+      # BEFORE the package is attached to any GitHub Release.
+      - name: Validate package — no forbidden large-batch guards
+        run: |
+          EXTRACT_DIR="$(mktemp -d)"
+          unzip -q "${ARCHIVE}" -d "${EXTRACT_DIR}"
+
+          TARGET="${EXTRACT_DIR}/process_batch/__init__.py"
+          if [ ! -f "${TARGET}" ]; then
+            echo "::error::process_batch/__init__.py not found inside the package."
+            exit 1
+          fi
+
+          if grep -En "raise\s+RuntimeError" "${TARGET}"; then
+            echo "::error file=process_batch/__init__.py::Forbidden pattern: 'raise RuntimeError' found in packaged file. Release blocked. The handler must return an HttpResponse for all inputs — see v1.0.1 incident."
+            exit 1
+          fi
+          echo "Package validation passed — no forbidden patterns detected."
+
+      # ── 3. Publish GitHub Release with the validated package ─────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: "${{ env.VERSION }}"
+          body: |
+            ## Release ${{ env.VERSION }}
+
+            Packaged from `main` at commit ${{ github.sha }}.
+
+            **Validation**: the deployment package was automatically inspected for
+            forbidden large-batch guard patterns before this release was published
+            (post-incident control introduced after the v1.0.1 incident).
+
+            ### Deploying to production
+
+            Update the Function App setting:
+            ```
+            WEBSITE_RUN_FROM_PACKAGE=https://github.com/${{ github.repository }}/releases/download/${{ env.VERSION }}/function-${{ env.VERSION }}.zip
+            ```
+
+            Or re-deploy the Bicep template with:
+            ```bash
+            az deployment group create \
+              --resource-group rg-dataops-pipeline-demo \
+              --template-file infra/main.bicep \
+              --parameters functionAppName=dataops-pipeline-func \
+                           appInsightsName=dataops-pipeline-insights \
+                           logAnalyticsName=dataops-pipeline-laws \
+                           packageUrl=https://github.com/${{ github.repository }}/releases/download/${{ env.VERSION }}/function-${{ env.VERSION }}.zip
+            ```
+          files: ${{ env.ARCHIVE }}
